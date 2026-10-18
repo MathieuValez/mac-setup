@@ -64,17 +64,37 @@ export PATH="$HOME/.local/bin:$PATH"
 
 # ---------------------------------------------------------------- 3. GitHub
 say "GitHub (gh)"
-if gh auth status >/dev/null 2>&1; then ok "connecté ($(gh api user --jq .login 2>/dev/null || echo '?'))"
+if gh auth status >/dev/null 2>&1; then
+  ok "connecté ($(gh api user --jq .login 2>/dev/null || echo '?'))"
+  # Le droit admin:public_key permet à install.sh de vérifier/ajouter la clé SSH de ce Mac sur GitHub
+  if ! gh auth status 2>&1 | grep -q 'admin:public_key'; then
+    echo "   Droit admin:public_key manquant : rafraîchissement du jeton (navigateur)…"
+    gh auth refresh --hostname github.com --scopes admin:public_key || true
+  fi
 else gh auth login --hostname github.com --git-protocol https --web --scopes admin:public_key; fi
 gh auth setup-git >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------- 4. Dotfiles (dépôt privé)
 say "Dotfiles (chezmoi, $GITHUB_USER/dotfiles)"
+# Le dépôt fait foi : les fichiers locaux qui diffèrent sont sauvegardés dans ~/.dotfiles-avant-<date>/ puis remplacés.
+backup_then_force() {
+  local changed bak
+  changed="$(chezmoi status 2>/dev/null | awk '{print $2}')" || true
+  if [[ -n "$changed" ]]; then
+    bak="$HOME/.dotfiles-avant-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$bak"
+    while IFS= read -r f; do [[ -e "$HOME/$f" ]] && { mkdir -p "$bak/$(dirname "$f")"; cp -p "$HOME/$f" "$bak/$f"; }; done <<<"$changed"
+    echo "   Fichiers locaux différents sauvegardés dans $bak"
+  fi
+}
 if [[ -d "$DOTFILES/.git" ]]; then
-  [[ -f "$HOME/.config/chezmoi/chezmoi.toml" ]] || chezmoi init      # (re)pose les questions rôle / nom si la config manque
-  chezmoi update --exclude=scripts && ok "dépôt tiré et dotfiles appliqués"
+  [[ -f "$HOME/.config/chezmoi/chezmoi.toml" ]] || chezmoi init      # (re)pose les questions rôle / noms si la config manque
+  git -C "$DOTFILES" pull -q --ff-only 2>/dev/null || true
+  backup_then_force
+  chezmoi apply --force --exclude=scripts && ok "dépôt tiré et dotfiles appliqués"
 else
-  chezmoi init --apply --exclude=scripts "$GITHUB_USER" && ok "dépôt cloné, dotfiles appliqués"
+  chezmoi init --exclude=scripts "$GITHUB_USER"                          # clone + questions, sans appliquer encore
+  backup_then_force
+  chezmoi apply --force --exclude=scripts && ok "dépôt cloné, dotfiles appliqués"
 fi
 
 # ---------------------------------------------------------------- 5. Le reste : install.sh du dépôt privé
