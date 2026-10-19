@@ -90,11 +90,13 @@ if [[ -d "$DOTFILES/.git" ]]; then
   [[ -f "$HOME/.config/chezmoi/chezmoi.toml" ]] || chezmoi init      # (re)pose les questions rôle / noms si la config manque
   git -C "$DOTFILES" pull -q --ff-only 2>/dev/null || true
   backup_then_force
-  chezmoi apply --force --exclude=scripts && ok "dépôt tiré et dotfiles appliqués"
+  chezmoi apply --force --exclude=scripts || { echo "   chezmoi apply a échoué : rien d'autre n'est fait tant que les dotfiles ne s'appliquent pas."; exit 1; }
+  ok "dépôt tiré et dotfiles appliqués"
 else
   chezmoi init --exclude=scripts "$GITHUB_USER"                          # clone + questions, sans appliquer encore
   backup_then_force
-  chezmoi apply --force --exclude=scripts && ok "dépôt cloné, dotfiles appliqués"
+  chezmoi apply --force --exclude=scripts || { echo "   chezmoi apply a échoué : rien d'autre n'est fait tant que les dotfiles ne s'appliquent pas."; exit 1; }
+  ok "dépôt cloné, dotfiles appliqués"
 fi
 
 # ---------------------------------------------------------------- 5. Le reste : install.sh du dépôt privé
